@@ -1,9 +1,10 @@
 ;version 1.2 	5-25-2021
-;version 1.3	6-26-2021		; cosmetic changes, isr handling optimize, changed to tass assembler, added 128 version
-;64tass.exe ./interface/interface64.asm -o ./interface/interface64.prg
-;exomizer sfx $0810 ./interface/interface64.prg -o ./interface/interface64c.prg -Di_effect=2 -x "inc $d020"
-;exomizer sfx $0810 ./interface/interface64.prg -o ./interface/interface64c.prg -Di_effect=2 -x "inc $fb lda $fb sta $d020 lda #0 sta $d020"
-;exomizer sfx $0810 ./interface/interface64.prg -o ./interface/interface64c.prg -Di_effect=2 -x "inc $d020 inc $d021 lda #0 sta $d020 sta $d021"
+;version 1.3	6-26-2021		; cosmetic changes, isr handling optimize, changed to tass assembler, added 128 version;64tass.exe ./interface/interface128.asm -o ./interface/interface128.prg
+;acme --cpu 6510 -f cbm -o ./interface/interface128.prg interface/interface128.asm
+;exomizer sfx $1c10 -t128 ./interface/interface128.prg -o ./interface/interface128c.prg -Di_effect=2 -x "inc $d020"
+;exomizer sfx $1c10 -t128 ./interface/interface128.prg -o ./interface/interface128c.prg -Di_effect=2 -x "inc $fb lda $fb sta $d020 lda #0 sta $d020"
+;exomizer sfx $1c10 -t128 ./interface/interface128.prg -o ./interface/interface128c.prg -Di_effect=2 -x "inc $d020 inc $d021 lda #0 sta $d020 sta $d021"
+
 
 
 clrscreen	= $e544
@@ -12,10 +13,11 @@ portloc		= $dd01				; 8-bit controller (0-7)	(#56577)
 screenloc	= $0400				; beginning of screen location
 borderloc	= $d020				; boreder color location
 backgrloc	= $d021				; background color location
-setchar		= $d018				; charater location
+setchar		= $0a2c				; 128		;$d018				; charater location
 isr			= $0314				; interupt location
-;returnint	= $ea31				; rti		;	removed, using jmp (isrbackup) for extended compatibilty
-char		= $2000				; custom char loc
+returnint	= $ea31				; rti
+char		= $3000				; custom char loc
+charoff		= $18
 ssizel		= $00				; size of screen in LO/HI
 ssizeh		= $04
 csizel		= $c0				; size of char set LO/HI
@@ -30,7 +32,6 @@ off			= $00				; off bit
 	;	KERNAL FUNCTIONS
 	;
 	
-clearscreen	= $e544
 
 chrout 		= $ffd2				;write byte to default output. (if not screen, must call open and chkout beforehands.)
 								;input: a = byte to write.
@@ -38,13 +39,13 @@ chrout 		= $ffd2				;write byte to default output. (if not screen, must call ope
 								;used registers: –
 								;real address: ($0326), $f1ca.
 								
-plot 		= $fff0				;save or restore cursor position.
+plot 		= $cc6a				;128	;$fff0				;save or restore cursor position.
 								;input: carry: 0 = restore from input, 1 = save to output; x = cursor column (if carry = 0); y = cursor row (if carry = 0).
 								;output: x = cursor column (if carry = 1); y = cursor row (if carry = 1).
 								;used registers: x, y.
 								;real address: $e50a.
 								
-getin 		= $ffe4				;read byte from default input. (if not keyboard, must call open and chkin beforehands.)
+getin 		= $eeeb				;128	;$ffe4				;read byte from default input. (if not keyboard, must call open and chkin beforehands.)
 								;input: –
 								;output: a = byte read.
 								;used registers: a, x, y.
@@ -75,7 +76,7 @@ pball		= %11111111			; 255 	(all on)
 
 zp1			= $fb				; zero page 1 location
 zp2			= $fd				; zero page 2 location
-zp3			= $02				; zero page 3 location
+zp3			= $fe				; zero page 3 location
 
 
 rvson		= $80				; scrren code to turn ON reverse character
@@ -88,14 +89,14 @@ rvsoff		= $7f				; screen code to turn OFF reverse character
 	; uncomment the following line to start as basic program
 
 ;	basic start
-
-*			= $0801
-			.byte $0d, $08, $0a, $00, $9e
-			.text "2064"			; Start address! Be *very* careful!
-			
+;
+;*			= $1c01
+;bstart		.byte $0d, $08, $0a, $00, $9e
+;btext		.text "7184"			; Start address! Be *very* careful!
+;			
 ;	basic stop
 
-*			= $0810				; SYS2064
+*			= $1c10				; SYS7184
 
 
 codeentry	jsr init			; setup and initialize
@@ -104,12 +105,13 @@ codeentry	jsr init			; setup and initialize
 			
 
 init		sei					; stop interupt operation (needed to setup new ISR)
-						
-			lda #textcolor		; set char color
-			jsr chrout
 			
+			lda #textcolor		; set char color
 			jsr clearscreen		; clear the screen
 			
+			
+			;jsr chrout
+						
 			lda setchar			; get current char info
 			sta charbackup		; store it to recover later
 			
@@ -132,7 +134,9 @@ init		sei					; stop interupt operation (needed to setup new ISR)
 			
 			jsr movedown		; move the memory
 			
-			lda #$18			; set to current char location
+			lda setchar			;#$18			; set to current char location
+			and #240
+			ora #12
 			sta setchar
 			
 			; end of custom character code			
@@ -223,10 +227,6 @@ md3      	lda (zp1),y			; move the remaining bytes
 md4      	rts
 			
 
-		;	
-		;	MAIN LOOP (ISR takes care of most functions)
-		;
-				
 exit		lda #pboff			; load all ports off (0)
 			sta portloc			; store it in port	; update port status
 			
@@ -234,7 +234,8 @@ exit		lda #pboff			; load all ports off (0)
 			ldy ystore			; restore y
 			clc					
 			jsr plot			; cursor position
-						
+			
+			lda #textcolor
 			jsr clearscreen		; clear the screen before exit
 			
 			sei					; stop interupt operations
@@ -249,10 +250,14 @@ exit		lda #pboff			; load all ports off (0)
 			
 			cli					; start interupt operations
 
-			rts	
+			rts
+
+		;	
+		;	MAIN LOOP (ISR takes care of most functions)
+		;
 				
 loop		jsr getin			; get a character from keyboard
-			
+						
 			beq loop
 			cmp #$0d			; <return> key pressed
 			beq exit			
@@ -278,8 +283,8 @@ loop		jsr getin			; get a character from keyboard
 			beq alloff
 			
 			bne loop			; everything else, back to loop
-
-		
+			;beq loop
+			rts
 	;	
 	;	MENU COMMANDS (removed JSR's for speed)
 	;
@@ -333,6 +338,11 @@ switchport	eor portloc
 			
 			jmp loop			; jump back to loop
 			
+
+clearscreen	jsr chrout
+			lda #$93
+			jsr chrout
+			rts
 	
 		;
 		;	SCAN PORTS FOR 'ON' STATUS
@@ -341,7 +351,8 @@ switchport	eor portloc
 startscan	lda flag			; look for flag, no need to change if nothing changed
 			cmp #off		
 			bne +				; somehthing changed continue on
-	
+			
+			;rti
 			jmp (isrbackup)
 			;jmp returnint		; no flag set go back
 			
@@ -481,9 +492,9 @@ startscan	lda flag			; look for flag, no need to change if nothing changed
 			
 			jsr rvsofft			; set rvs indicator to 'off'
 		
-+			jmp (isrbackup)
++			;rti
 			;jmp returnint
-
+			jmp (isrbackup)
 
 rvsont		lda #rvson			; load the RVS ON character
 			ora (zp1),y			; turn ON RVS for selected character
@@ -539,9 +550,6 @@ screentxt	.byte	$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$10,$0F,
 			.byte	$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20
 			.byte	$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$02,$19,$20,$20,$0A,$0F,$08,$0E,$20,$03,$01,$12,$0D,$0F,$0E,$19,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20
 
-
-	;
-	;	CUSTOM CHARACTER SET
-	;
-	
-charset		.binary "1-writer.64c",2
+charset
+;.include "charset.asm"
+.binary "1-writer.64c",2
